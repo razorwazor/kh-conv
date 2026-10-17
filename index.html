@@ -1,81 +1,210 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Khmer Romanization Tool</title>
-    <style>
-        body {
-            font-family: sans-serif;
-            max-width: 800px;
-            margin: 2rem auto;
-            padding: 0 1rem;
-        }
-        h1 {
-            font-size: 1.5rem;
-        }
-        .container {
-            display: flex;
-            flex-direction: column;
-            gap: 1rem;
-        }
-        .box {
-            display: flex;
-            flex-direction: column;
-        }
-        label {
-            font-weight: bold;
-            margin-bottom: 0.25rem;
-        }
-        textarea {
-            width: 100%;
-            height: 150px;
-            padding: 0.5rem;
-            font-size: 1rem;
-            font-family: inherit;
-            box-sizing: border-box;
-            resize: vertical;
-        }
-        #output {
-            background-color: #f4f4f4;
-            color: #333;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Khmer Romanization</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 820px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.35rem; }
+  .container { display: flex; flex-direction: column; gap: 1rem; }
+  label { font-weight: 600; display: block; margin-bottom: .3rem; }
+  textarea {
+    width: 100%; height: 160px; padding: .6rem; font-size: 1.05rem;
+    box-sizing: border-box; resize: vertical; font-family: inherit;
+    border: 1px solid #bbb; border-radius: 6px;
+  }
+  #output { background: #f5f5f5; }
+  .hint { font-size: .8rem; color: #666; margin-top: .3rem; }
+</style>
 </head>
 <body>
-    <h1>Khmer Romanization</h1>
-    <div class="container">
-        <div class="box">
-            <label for="input">Khmer Text</label>
-            <textarea id="input" placeholder="វាយបញ្ចូលអក្សរខ្មែរនៅទីនេះ..."></textarea>
-        </div>
-        <div class="box">
-            <label for="output">Romanized Output</label>
-            <textarea id="output" readonly></textarea>
-        </div>
+  <h1>Khmer → Latin Romanization</h1>
+  <div class="container">
+    <div>
+      <label for="input">Khmer text</label>
+      <textarea id="input" placeholder="វាយបញ្ចូលអក្សរខ្មែរនៅទីនេះ..."></textarea>
     </div>
+    <div>
+      <label for="output">Romanized output</label>
+      <textarea id="output" readonly></textarea>
+      <div class="hint">Geographic Department (Cambodia) style romanization.</div>
+    </div>
+  </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@gmana/km-translit@0.0.2/dist/index.umd.min.js"></script>
-    <script>
-        const input = document.getElementById('input');
-        const output = document.getElementById('output');
+<script>
+(function () {
+  "use strict";
 
-        // The library is loaded globally as `kmTranslit`
-        const { khmerToLatin } = kmTranslit;
+  /* ---------- consonant base values ---------- */
+  var CONS = {
+    "ក":"k","ខ":"kh","គ":"k","ឃ":"kh","ង":"ng",
+    "ច":"ch","ឆ":"chh","ជ":"ch","ឈ":"chh","ញ":"nh",
+    "ដ":"d","ឋ":"th","ឌ":"d","ឍ":"th","ណ":"n",
+    "ត":"t","ថ":"th","ទ":"t","ធ":"th","ន":"n",
+    "ប":"b","ផ":"ph","ព":"p","ភ":"ph","ម":"m",
+    "យ":"y","រ":"r","ល":"l","វ":"v",
+    "ស":"s","ហ":"h","ឡ":"l","អ":""
+  };
 
-        input.addEventListener('input', () => {
-            const khmerText = input.value;
-            if (khmerText.trim() === '') {
-                output.value = '';
-                return;
-            }
-            try {
-                output.value = khmerToLatin(khmerText);
-            } catch (e) {
-                output.value = 'Error during romanization.';
-                console.error(e);
-            }
-        });
-    </script>
+  /* second-series (o-series) consonants */
+  var O_SERIES = { "គ":1,"ឃ":1,"ង":1,"ជ":1,"ឈ":1,"ញ":1,"ឌ":1,"ឍ":1,"ណ":1,
+                   "ទ":1,"ធ":1,"ន":1,"ព":1,"ភ":1,"ម":1,"យ":1,"រ":1,"ល":1,"វ":1 };
+
+  /* dependent vowels: [a-series, o-series] */
+  var VOWELS = {
+    "ា": ["a","éa"], "ិ": ["ĕ","ĭ"], "ី": ["i","i"], "ឹ": ["œ̆","œ̆"],
+    "ឺ": ["œ","œ"],   "ុ": ["ŏ","ŭ"], "ូ": ["u","u"], "ួ": ["uŏ","uŏ"],
+    "ើ": ["œ","œ"],   "ឿ": ["œă","œă"], "ៀ": ["iĕ","iĕ"],
+    "េ": ["é","é"],   "ែ": ["ê","ê"], "ៃ": ["ai","ai"],
+    "ោ": ["aô","o"],  "ៅ": ["au","au"]
+  };
+
+  /* independent vowels */
+  var INDEP = {
+    "ឥ":"i","ឦ":"i","ឧ":"u","ឩ":"u","ឪ":"âu","ឫ":"rœ̆","ឬ":"rœ",
+    "ឭ":"lœ̆","ឮ":"lœ","ឯ":"é","ឰ":"ai","ឱ":"o","ឳ":"au"
+  };
+
+  var COENG        = "\u17D2";
+  var MUSIKATOAN   = "\u17C9";  // ៉  -> forces a-series
+  var TRIISAP      = "\u17CA";  // ៊  -> forces o-series
+  var NIKAHIT      = "\u17C6";  // ំ
+  var REAHMUK      = "\u17C7";  // ះ
+  var YUUKALEAPINTU= "\u17C8";  // ៈ
+  var BANTOC       = "\u17CB";  // ់
+
+  var IGNORED = {};
+  ["\u17CB","\u17CC","\u17CD","\u17CE","\u17CF","\u17D0","\u17D1","\u17D3"]
+    .forEach(function (c) { IGNORED[c] = 1; });
+
+  var SHORT = { "a":"ă","é":"ĕ","i":"ĭ","o":"ŏ","u":"ŭ","â":"ă","ô":"ŏ",
+                "ai":"ăi","au":"ăo","aô":"ŏ" };
+
+  function isCons(c)  { return Object.prototype.hasOwnProperty.call(CONS, c); }
+  function isVowel(c) { return Object.prototype.hasOwnProperty.call(VOWELS, c); }
+  function isSign(c)  { return c === NIKAHIT || c === REAHMUK || c === YUUKALEAPINTU; }
+  function isDiac(c)  { return IGNORED[c] === 1; }
+
+  function renderSyllable(s) {
+    var body;
+    if (s.sign) {
+      if (s.vowel !== null) {
+        body = s.vowel + (s.sign === NIKAHIT ? "m" : "h");
+      } else if (s.sign === NIKAHIT) {
+        body = (s.series === "o") ? "um" : "âm";
+      } else {
+        body = (s.series === "o") ? "eăh" : "ăh";
+      }
+    } else if (s.vowel !== null) {
+      body = s.vowel;
+    } else {
+      body = (s.series === "o") ? "ô" : "â";
+    }
+
+    if (s.bantoc && s.vowel !== null && !s.sign && SHORT[body]) {
+      body = SHORT[body];
+    }
+    return s.onset + body + s.coda;
+  }
+
+  /* Parse a run of Khmer starting at `start`; return {text, next} */
+  function parseRun(chars, start) {
+    var i = start, syllables = [], cur = null;
+
+    while (i < chars.length) {
+      var c = chars[i];
+
+      if (isCons(c)) {
+        var series = O_SERIES[c] ? "o" : "a";
+        i++;
+        while (chars[i] === MUSIKATOAN || chars[i] === TRIISAP) {
+          series = (chars[i] === MUSIKATOAN) ? "a" : "o";
+          i++;
+        }
+
+        var cluster = CONS[c];
+        while (chars[i] === COENG && isCons(chars[i + 1])) {
+          i++;
+          cluster += CONS[chars[i]];
+          i++;
+          while (chars[i] === MUSIKATOAN || chars[i] === TRIISAP) { i++; }
+        }
+
+        var nx = chars[i];
+        var hasVowelAfter = (nx !== undefined) && (isVowel(nx) || isSign(nx));
+
+        if (cur === null || cur.coda !== "" || cur.closed || hasVowelAfter) {
+          if (cur) syllables.push(cur);
+          cur = { onset: cluster, series: series, vowel: null,
+                  coda: "", closed: false, sign: null, bantoc: false };
+        } else {
+          cur.coda += cluster;
+        }
+
+      } else if (isVowel(c)) {
+        if (cur) cur.vowel = VOWELS[c][cur.series === "o" ? 1 : 0];
+        i++;
+
+      } else if (isSign(c)) {
+        if (cur) { cur.sign = c; cur.closed = true; }
+        i++;
+
+      } else if (isDiac(c)) {
+        if (cur && c === BANTOC) cur.bantoc = true;
+        i++;
+
+      } else {
+        break;
+      }
+    }
+
+    if (cur) syllables.push(cur);
+
+    var text = "";
+    for (var k = 0; k < syllables.length; k++) text += renderSyllable(syllables[k]);
+    return { text: text, next: i };
+  }
+
+  function romanize(input) {
+    var chars = Array.from(input);
+    var out = "", i = 0;
+
+    while (i < chars.length) {
+      var c = chars[i];
+
+      if (c === "\u200B") { i++; continue; }          // zero-width space
+      if (isCons(c)) {
+        var r = parseRun(chars, i);
+        out += r.text;
+        i = r.next;
+      } else if (Object.prototype.hasOwnProperty.call(INDEP, c)) {
+        out += INDEP[c]; i++;
+      } else if (c >= "០" && c <= "៩") {                // Khmer digits
+        out += String(c.charCodeAt(0) - 0x17E0); i++;
+      } else if (c === COENG) {
+        i++;                                            // stray coeng
+      } else {
+        out += c; i++;
+      }
+    }
+    return out;
+  }
+
+  /* ---------- wire up the UI ---------- */
+  var inputEl  = document.getElementById("input");
+  var outputEl = document.getElementById("output");
+
+  function update() { outputEl.value = romanize(inputEl.value); }
+
+  inputEl.addEventListener("input", update);
+  inputEl.addEventListener("keyup", update);
+  inputEl.addEventListener("change", update);
+  inputEl.addEventListener("paste", function () { setTimeout(update, 0); });
+  inputEl.addEventListener("cut",  function () { setTimeout(update, 0); });
+
+  update();
+})();
+</script>
 </body>
 </html>
