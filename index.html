@@ -1,377 +1,81 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Khmer Romanizer</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Khmer:wght@400;600&display=swap" rel="stylesheet">
-<style>
-  :root { --bg:#fff; --fg:#1a1a1a; --muted:#666; --border:#c8c8c8; --box:#f6f6f6; --accent:#1f5fbf; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#161616; --fg:#eee; --muted:#9a9a9a; --border:#3a3a3a; --box:#202020; --accent:#6fa3ef; }
-  }
-  * { box-sizing: border-box; }
-  body { margin:0; padding:24px 16px; background:var(--bg); color:var(--fg);
-         font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; line-height:1.5; }
-  main { max-width:720px; margin:0 auto; }
-  h1 { font-size:1.5rem; margin:0 0 4px; }
-  p.sub { margin:0 0 20px; color:var(--muted); }
-  label { display:block; font-weight:600; margin:16px 0 6px; }
-  textarea, #output { width:100%; min-height:150px; padding:12px; font-size:1.1rem; line-height:1.6;
-         color:var(--fg); background:var(--box); border:1px solid var(--border); border-radius:6px; }
-  textarea { resize:vertical; font-family:"Noto Sans Khmer","Khmer OS","Leelawadee UI",system-ui,sans-serif; }
-  textarea:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
-  #output { white-space:pre-wrap; overflow-wrap:anywhere; }
-  #output.empty { color:var(--muted); }
-  #status { min-height:1.5em; margin-top:8px; font-size:.9rem; color:var(--muted); }
-  button { margin-top:12px; padding:8px 14px; font-size:.95rem; color:var(--fg); background:var(--box);
-           border:1px solid var(--border); border-radius:6px; cursor:pointer; }
-  button:disabled { opacity:.5; cursor:not-allowed; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Khmer Romanization Tool</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+        h1 {
+            font-size: 1.5rem;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .box {
+            display: flex;
+            flex-direction: column;
+        }
+        label {
+            font-weight: bold;
+            margin-bottom: 0.25rem;
+        }
+        textarea {
+            width: 100%;
+            height: 150px;
+            padding: 0.5rem;
+            font-size: 1rem;
+            font-family: inherit;
+            box-sizing: border-box;
+            resize: vertical;
+        }
+        #output {
+            background-color: #f4f4f4;
+            color: #333;
+        }
+    </style>
 </head>
 <body>
-<main>
-  <h1>Khmer Romanizer</h1>
-  <p class="sub">Type or paste Khmer text. The romanization appears below.</p>
+    <h1>Khmer Romanization</h1>
+    <div class="container">
+        <div class="box">
+            <label for="input">Khmer Text</label>
+            <textarea id="input" placeholder="វាយបញ្ចូលអក្សរខ្មែរនៅទីនេះ..."></textarea>
+        </div>
+        <div class="box">
+            <label for="output">Romanized Output</label>
+            <textarea id="output" readonly></textarea>
+        </div>
+    </div>
 
-  <label for="input">Khmer text</label>
-  <textarea id="input" lang="km" placeholder="បងចង់រស់ ព្រោះតែស្រី"></textarea>
+    <script src="https://cdn.jsdelivr.net/npm/@gmana/km-translit@0.0.2/dist/index.umd.min.js"></script>
+    <script>
+        const input = document.getElementById('input');
+        const output = document.getElementById('output');
 
-  <label for="output">Romanization</label>
-  <div id="output" class="empty" aria-live="polite">Romanization will appear here.</div>
-  <div id="status"></div>
-  <button id="export" type="button" disabled>Download Google pairs (.tsv)</button>
-</main>
+        // The library is loaded globally as `kmTranslit`
+        const { khmerToLatin } = kmTranslit;
 
-<script>
-(function (root, factory) {
-  if (typeof module === "object" && module.exports) module.exports = factory();
-  else root.KhmerRoman = factory();
-})(typeof self !== "undefined" ? self : this, function () {
-  "use strict";
-
-  // Consonants U+1780..U+17A2
-  const CONS = ["k","kh","k","kh","ng","ch","chh","ch","chh","nh","d","th","d","th","n","t","th","t","th","n","b","ph","p","ph","m","y","r","l","v","sh","s","s","h","l","a"];
-  // a-series consonants (index from U+1780). ណ (14) is treated as a-series, as in the samples.
-  const A_SERIES = new Set([0,1,5,6,10,11,14,15,16,20,21,29,30,31,32,33,34]);
-  // Independent vowels U+17A3..U+17B3
-  const INDEP = ["a","a","e","ei","o","o","ou","au","rue","rue","lue","lue","ae","ai","ao","ao","au"];
-  // Dependent vowels: [a-series, o-series]
-  const VOW = {
-    0x17B6: ["a", "ea"], 0x17B7: ["e", "i"], 0x17B8: ["ei", "i"], 0x17B9: ["oe", "u"],
-    0x17BA: ["oe", "u"], 0x17BB: ["o", "ou"], 0x17BC: ["au", "ou"], 0x17BD: ["uo", "uo"],
-    0x17BE: ["ae", "eu"], 0x17BF: ["oea", "ue"], 0x17C0: ["ie", "ie"], 0x17C1: ["e", "e"],
-    0x17C2: ["e", "e"], 0x17C3: ["ai", "ai"], 0x17C4: ["ao", "o"], 0x17C5: ["ow", "ow"]
-  };
-  const PUNCT = { 0x17D4: ".", 0x17D5: ".", 0x17D6: ":" };
-
-  const COENG = "\u17D2", NIKAHIT = "\u17C6", REAHMUK = "\u17C7", YUUKALEAPINTU = "\u17C8";
-  const BANTOC = "\u17CB", TOANDAKHIAT = "\u17CD", AHSDA = "\u17CF", SAMYOK = "\u17D0";
-  const MUUSIKATOAN = "\u17C9", TRIISAP = "\u17CA";
-  const MODS = new Set([NIKAHIT, REAHMUK, YUUKALEAPINTU, BANTOC, "\u17CC", TOANDAKHIAT, "\u17CE", AHSDA, SAMYOK, "\u17D1", "\u17D3", "\u17DD"]);
-
-  // Words that don't follow the general rules in the sample data.
-  const EXC = [
-    ["ស្នេហា", "snehea"],
-    ["ប្រាថ្នា", "brathnea"],
-    ["ចិន្ដា", "chenda"],
-    ["ទាំងអស់", "teangoasa"],
-    ["ស៊ូ", "saou"],
-    ["ណាមាស", "nameasa"],
-    ["ចរណៃ", "charnai"],
-    ["ផ្សេង", "phsaeng"],
-    ["ទឹកភ្នែក", "tukaphnek"],
-    ["ពាក្យ", "peakya"],
-    ["ចម្លើយ", "chamleuy"],
-    ["ឈឺចាប់", "chhucheab"],
-    ["បកក្រោយ", "bkkraoy"],
-    ["សាវ៉ា", "savea"]
-].sort((a, b) => b[0].length - a[0].length);
-
-  const cp = (ch) => ch.charCodeAt(0);
-  const isCons = (ch) => ch !== undefined && cp(ch) >= 0x1780 && cp(ch) <= 0x17A2;
-  const isIndep = (ch) => ch !== undefined && cp(ch) >= 0x17A3 && cp(ch) <= 0x17B3;
-  const isDepVowel = (ch) => ch !== undefined && cp(ch) >= 0x17B6 && cp(ch) <= 0x17C5;
-
-  function parseCluster(s, i) {
-    const first = s[i];
-    const c = { base: first, indep: !isCons(first), subs: [], shifter: null, vowel: null, mods: [] };
-    i++;
-    if (!c.indep) {
-      for (;;) {
-        const ch = s[i];
-        if (ch === COENG && isCons(s[i + 1])) { c.subs.push(s[i + 1]); i += 2; }
-        else if (ch === MUUSIKATOAN || ch === TRIISAP) { c.shifter = ch; i++; }
-        else break;
-      }
-    }
-    if (isDepVowel(s[i])) { c.vowel = s[i]; i++; }
-    for (;;) {
-      const ch = s[i];
-      if (ch === MUUSIKATOAN || ch === TRIISAP) { c.shifter = ch; i++; }
-      else if (ch !== undefined && MODS.has(ch)) { c.mods.push(ch); i++; }
-      else break;
-    }
-    return [c, i];
-  }
-
-  const has = (c, m) => c.mods.includes(m);
-  const series = (c) => {
-    if (c.shifter === MUUSIKATOAN) return 0;
-    if (c.shifter === TRIISAP) return 1;
-    if (c.indep) return 0;
-    if (c.base === "ណ" && c.vowel === "\u17B6") return 1;
-    return A_SERIES.has(cp(c.base) - 0x1780) ? 0 : 1;
-  };
-  const lastSubIsGlottal = (c) => c.subs.length > 0 && cp(c.subs[c.subs.length - 1]) === 0x17A2;
-  const hasVowel = (c) =>
-    c.indep || !!c.vowel || has(c, NIKAHIT) || has(c, AHSDA) || lastSubIsGlottal(c);
-  const closes = (c) => has(c, REAHMUK) || has(c, NIKAHIT) || has(c, YUUKALEAPINTU);
-  const inherent = (c) => (series(c) === 0 ? "a" : "o");
-  const isNg = (c) => c && c.base === "ង" && c.subs.length === 0;
-
-  function tail(c) {
-    let t = "";
-    if (has(c, REAHMUK)) t += "h";
-    if (has(c, YUUKALEAPINTU)) t += "ah";
-    return t;
-  }
-
-  function renderV(c) {
-    if (has(c, TOANDAKHIAT)) return "";
-    if (c.indep) return INDEP[cp(c.base) - 0x17A3] + (has(c, NIKAHIT) ? "m" : "") + tail(c);
-    const s = series(c);
-    const bi = cp(c.base) - 0x1780;
-    let out = "";
-    if (bi !== 34) out += CONS[bi];
-    else if (c.subs.length) out += "a";
-    let subA = false;
-    for (const sc of c.subs) {
-      const si = cp(sc) - 0x1780;
-      if (si === 34) subA = true; else out += CONS[si];
-    }
-    let v = "";
-    if (c.vowel) v = VOW[cp(c.vowel)][s];
-    else if (subA) v = "a";
-    else if (has(c, NIKAHIT)) v = s === 0 ? "a" : "o";
-    else if (has(c, AHSDA)) v = "a";
-    if (c.vowel === "\u17C1" && has(c, REAHMUK) && s === 1) v = "i"; // េះ after o-series: "ih"
-    if (has(c, NIKAHIT)) {
-      if (c.vowel === "\u17B6" && s === 1) v = "ea"; // o-series ាំ: no m
-      else v += "m";
-    }
-    return out + v + tail(c);
-  }
-
-  function renderPlain(c, coda) {
-    if (has(c, TOANDAKHIAT)) return "";
-    const bi = cp(c.base) - 0x1780;
-    let out = CONS[bi];
-    for (const sc of c.subs) out += CONS[cp(sc) - 0x1780];
-    if (coda && bi === 31 && c.subs.length === 0) out = "sa"; // final ស is written "sa"
-    return out + tail(c);
-  }
-
-  function sepText(ch) {
-    const n = cp(ch);
-    if (n >= 0x17E0 && n <= 0x17E9) return String(n - 0x17E0);
-    if (PUNCT[n] !== undefined) return PUNCT[n];
-    return ch;
-  }
-
-  function tokenize(s) {
-    const toks = [];
-    let i = 0;
-    outer: while (i < s.length) {
-      for (const [key, rom] of EXC) {
-        if (s.startsWith(key, i)) { toks.push({ t: "lit", text: rom }); i += key.length; continue outer; }
-      }
-      const ch = s[i];
-      if (isCons(ch) || isIndep(ch)) {
-        const [c, j] = parseCluster(s, i);
-        toks.push({ t: "cl", c });
-        i = j;
-      } else if (ch === COENG) {
-        i++;
-      } else {
-        toks.push({ t: "sep", text: sepText(ch) });
-        i++;
-      }
-    }
-    // ក៏ in the middle of a run is dropped; standing alone it is "ka"
-    return toks.filter((t, idx) => !(t.t === "cl" && has(t.c, AHSDA) && idx > 0 && toks[idx - 1].t !== "sep"));
-  }
-
-  function romanize(text) {
-    const toks = tokenize(text.normalize("NFC").replace(/[\u200B\u200C\u200D\uFEFF]/g, ""));
-    let out = "";
-    let prevOpen = false; // previous cluster carried a vowel, so a bare consonant now is a final
-    let k = 0;
-    while (k < toks.length) {
-      const tok = toks[k];
-      if (tok.t !== "cl") { out += tok.text; prevOpen = false; k++; continue; }
-      const c = tok.c;
-      if (hasVowel(c)) { out += renderV(c); prevOpen = !closes(c); k++; continue; }
-
-      if (has(c, SAMYOK)) { out += renderPlain(c, false); prevOpen = "samyok"; k++; continue; }
-
-      const nx = toks[k + 1];
-      const nc = nx && nx.t === "cl" ? nx.c : null;
-      const ncVowelless = !!nc && !hasVowel(nc);
-      const ncNg = ncVowelless && isNg(nc);
-      const forceOnset = ncVowelless && (ncNg || has(nc, BANTOC));
-
-      if (prevOpen && c.base !== "អ" && (prevOpen !== "samyok" || c.subs.length === 0) && (has(c, BANTOC) || !forceOnset)) {
-        out += renderPlain(c, true); prevOpen = false; k++; continue;
-      }
-      if (ncVowelless) {
-        if (nc.subs.length > 0 && !has(nc, BANTOC) && !has(nc, SAMYOK)) {
-          // next cluster starts its own syllable, so this consonant is an open syllable
-          out += renderPlain(c, false) + inherent(c);
-          prevOpen = false; k++; continue;
-        }
-        const ins = c.subs.length > 0;
-        out += renderPlain(c, false) + (ins ? inherent(c) : "") + renderPlain(nc, true);
-        prevOpen = false; k += 2; continue;
-      }
-      const open = !has(c, BANTOC) && nx && (nx.t === "lit" || (nc && hasVowel(nc)));
-      out += renderPlain(c, false) + (open ? inherent(c) : "");
-      prevOpen = false; k++;
-    }
-    return out;
-  }
-
-  return { romanize };
-});
-
-</script>
-<script>
-  const input = document.getElementById("input");
-  const output = document.getElementById("output");
-  const statusEl = document.getElementById("status");
-  const exportBtn = document.getElementById("export");
-  const MAX_PARALLEL = 4;
-  const cache = new Map();   // Khmer line -> Google romanization
-  let timer = null;
-  let requestId = 0;
-
-  const norm = (s) => s.replace(/\s+/g, "").toLowerCase();
-
-  // Ask Google Translate (unofficial endpoint) for the romanization of one line.
-  async function googleLine(line) {
-    if (cache.has(line)) return cache.get(line);
-    const ctrl = new AbortController();
-    const to = setTimeout(() => ctrl.abort(), 6000);
-    try {
-      const url = "https://translate.googleapis.com/translate_a/single" +
-        "?client=gtx&sl=km&tl=en&dt=t&dt=rm&q=" + encodeURIComponent(line);
-      const res = await fetch(url, { signal: ctrl.signal });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const data = await res.json();
-      let roman = "";
-      for (const seg of data[0] || []) {
-        if (seg && typeof seg[3] === "string") roman += seg[3];
-      }
-      if (!roman) throw new Error("no romanization in response");
-      cache.set(line, roman);
-      return roman;
-    } finally {
-      clearTimeout(to);
-    }
-  }
-
-  // Fetch every uncached line, a few at a time so big pastes don't hammer Google.
-  async function fetchAll(lines, myId, onProgress) {
-    const todo = [...new Set(lines.filter((l) => l.trim() && !cache.has(l)))];
-    let next = 0, done = 0;
-    async function worker() {
-      while (next < todo.length && myId === requestId) {
-        const line = todo[next++];
-        try { await googleLine(line); } catch (e) { /* stays uncached; offline rules are used */ }
-        done++;
-        onProgress(done, todo.length);
-      }
-    }
-    await Promise.all(Array.from({ length: Math.min(MAX_PARALLEL, todo.length) }, worker));
-  }
-
-  function render(lines) {
-    let missing = 0;
-    const out = lines.map((l) => {
-      if (!l.trim()) return "";
-      if (cache.has(l)) return cache.get(l);
-      missing++;
-      return KhmerRoman.romanize(l);
-    });
-    output.textContent = out.join("\n");
-    output.classList.remove("empty");
-    return missing;
-  }
-
-  function uniqueLines(lines) {
-    return [...new Set(lines.filter((l) => l.trim()))];
-  }
-
-  function summary(lines) {
-    const u = uniqueLines(lines);
-    const have = u.filter((l) => cache.has(l));
-    const same = have.filter((l) => norm(cache.get(l)) === norm(KhmerRoman.romanize(l))).length;
-    exportBtn.disabled = have.length === 0;
-    return { total: u.length, have: have.length, same };
-  }
-
-  async function update() {
-    const text = input.value;
-    const myId = ++requestId;
-    if (!text.trim()) {
-      output.textContent = "Romanization will appear here.";
-      output.classList.add("empty");
-      statusEl.textContent = "";
-      exportBtn.disabled = true;
-      return;
-    }
-    const lines = text.split("\n");
-    render(lines); // offline result right away
-    let s = summary(lines);
-    statusEl.textContent = s.have < s.total ? "Checking Google\u2026 " + s.have + "/" + s.total : "";
-
-    let lastDraw = 0;
-    await fetchAll(lines, myId, (done, total) => {
-      if (myId !== requestId) return;
-      if (done - lastDraw >= 25 || done === total) { lastDraw = done; render(lines); }
-      statusEl.textContent = "Checking Google\u2026 " + (s.have + done) + "/" + s.total;
-    });
-    if (myId !== requestId) return;
-    const missing = render(lines);
-    s = summary(lines);
-    statusEl.textContent = missing === 0
-      ? "Source: Google Translate. Offline engine agrees on " + s.same + " of " + s.total + " lines (ignoring spaces)."
-      : "Google unavailable for " + missing + " line(s); those use offline rules.";
-  }
-
-  function buildTsv() {
-    const rows = ["khmer\tgoogle\toffline\toffline_matches"];
-    for (const l of uniqueLines(input.value.split("\n"))) {
-      if (!cache.has(l)) continue;
-      const g = cache.get(l), o = KhmerRoman.romanize(l);
-      rows.push([l, g, o, norm(g) === norm(o) ? "1" : "0"].join("\t"));
-    }
-    return rows.join("\n") + "\n";
-  }
-
-  exportBtn.addEventListener("click", () => {
-    const blob = new Blob([buildTsv()], { type: "text/tab-separated-values;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "khmer-pairs.tsv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-  });
-
-  input.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(update, 600); });
-</script>
+        input.addEventListener('input', () => {
+            const khmerText = input.value;
+            if (khmerText.trim() === '') {
+                output.value = '';
+                return;
+            }
+            try {
+                output.value = khmerToLatin(khmerText);
+            } catch (e) {
+                output.value = 'Error during romanization.';
+                console.error(e);
+            }
+        });
+    </script>
 </body>
 </html>
